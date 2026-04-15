@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.trace
+trace_output/
+.pytest_cache/
+.coverage
+build/
+dist/
+*.egg-info/
+.runtime/
