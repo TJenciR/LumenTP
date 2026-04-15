@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from .constants import CRLF, DEFAULT_BINARY_TYPE, STATUS_REASONS, VERSION
+from .constants import BODY_METHODS, CRLF, DEFAULT_BINARY_TYPE, STATUS_REASONS, VERSION
 from .errors import ValidationError
 
 
@@ -42,6 +42,9 @@ class HeaderMap:
             new_items.append((name, value))
         return HeaderMap.from_pairs(new_items)
 
+    def without(self, name: str) -> "HeaderMap":
+        return HeaderMap.from_pairs([(k, v) for k, v in self.items if k.lower() != name.lower()])
+
     def to_lines(self) -> list[str]:
         return [f"{name}: {value}" for name, value in self.items]
 
@@ -76,7 +79,7 @@ class Request:
             raise ValidationError("invalid target")
 
     def _ensure_content_length(self) -> None:
-        if self.body:
+        if self.body or self.method in BODY_METHODS:
             self.headers = self.headers.with_replaced("Content-Length", str(len(self.body)))
 
     def to_bytes(self) -> bytes:

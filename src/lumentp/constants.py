@@ -1,6 +1,6 @@
-"""Protocol constants for LumenTP/1.1."""
+"""Protocol constants for LumenTP/1.2."""
 
-VERSION = "LumenTP/1.1"
+VERSION = "LumenTP/1.2"
 CRLF = b"\r\n"
 HEADER_TERMINATOR = b"\r\n\r\n"
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -11,16 +11,21 @@ ALLOWED_METHODS = {"FETCH", "SUBMIT", "REPLACE", "REMOVE", "PING"}
 DEFAULT_BINARY_TYPE = "application/octet-stream"
 DEFAULT_TEXT_TYPE = "text/plain; charset=utf-8"
 PROBLEM_JSON_TYPE = "application/problem+json"
+JSON_TYPE = "application/json"
 AUTH_SCHEME = "Token"
+DEFAULT_CACHE_MAX_AGE = 60
+REQUEST_ID_HEADER = "X-Request-Id"
 STATUS_REASONS = {
     200: "OK",
     201: "CREATED",
     204: "NO CONTENT",
+    304: "NOT MODIFIED",
     400: "BAD REQUEST",
     401: "UNAUTHORIZED",
     404: "NOT FOUND",
     405: "METHOD NOT ALLOWED",
     406: "NOT ACCEPTABLE",
     411: "LENGTH REQUIRED",
+    412: "PRECONDITION FAILED",
     500: "INTERNAL SERVER ERROR",
 }

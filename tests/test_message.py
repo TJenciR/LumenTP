@@ -19,12 +19,21 @@ class HeaderMapTests(unittest.TestCase):
         headers = HeaderMap.from_pairs([("Content-Length", "1")]).with_replaced("Content-Length", "3")
         self.assertEqual(headers.get("content-length"), "3")
 
+    def test_without_removes_headers(self):
+        headers = HeaderMap.from_pairs([("A", "1"), ("B", "2")]).without("a")
+        self.assertIsNone(headers.get("A"))
+        self.assertEqual(headers.get("B"), "2")
+
 
 class MessageTests(unittest.TestCase):
     def test_request_sets_content_length_when_body_exists(self):
         request = Request(method="SUBMIT", target="/doc", body=b"abc")
         self.assertEqual(request.headers.get("Content-Length"), "3")
         self.assertIn(b"SUBMIT /doc", request.to_bytes())
+
+    def test_request_sets_zero_content_length_for_empty_body_methods(self):
+        request = Request(method="SUBMIT", target="/doc", body=b"")
+        self.assertEqual(request.headers.get("Content-Length"), "0")
 
     def test_request_rejects_wrong_version(self):
         with self.assertRaises(ValidationError):

@@ -11,11 +11,12 @@ from lumentp.message import Response
 class CLITests(unittest.TestCase):
     def test_build_parser_parses_submit(self):
         parser = cli.build_parser()
-        args = parser.parse_args(["submit", "/doc", "--body", "hello", "--content-type", "text/plain"])
+        args = parser.parse_args(["submit", "/doc", "--body", "hello", "--content-type", "text/plain", "--if-none-match", "*"])
         self.assertEqual(args.command, "submit")
         self.assertEqual(args.target, "/doc")
         self.assertEqual(args.body, "hello")
         self.assertEqual(args.content_type, "text/plain")
+        self.assertEqual(args.if_none_match, "*")
 
     def test_run_client_command_dispatches_all_supported_methods(self):
         client = MagicMock()
@@ -25,26 +26,52 @@ class CLITests(unittest.TestCase):
         client.replace.return_value = "replace"
         client.remove.return_value = "remove"
 
-        self.assertEqual(cli._run_client_command(client, SimpleNamespace(command="ping")), "ping")
+        self.assertEqual(cli._run_client_command(client, SimpleNamespace(command="ping", request_id=None)), "ping")
         self.assertEqual(
-            cli._run_client_command(client, SimpleNamespace(command="fetch", target="/a", accept=None, token=None)),
+            cli._run_client_command(
+                client,
+                SimpleNamespace(command="fetch", target="/a", accept=None, token=None, if_none_match=None, request_id=None),
+            ),
             "fetch",
         )
         self.assertEqual(
             cli._run_client_command(
                 client,
-                SimpleNamespace(command="submit", target="/a", body="x", content_type="text/plain", token=None),
+                SimpleNamespace(
+                    command="submit",
+                    target="/a",
+                    body="x",
+                    content_type="text/plain",
+                    token=None,
+                    if_none_match=None,
+                    if_match=None,
+                    request_id=None,
+                ),
             ),
             "submit",
         )
         self.assertEqual(
             cli._run_client_command(
                 client,
-                SimpleNamespace(command="replace", target="/a", body="x", content_type="text/plain", token=None),
+                SimpleNamespace(
+                    command="replace",
+                    target="/a",
+                    body="x",
+                    content_type="text/plain",
+                    token=None,
+                    if_match=None,
+                    request_id=None,
+                ),
             ),
             "replace",
         )
-        self.assertEqual(cli._run_client_command(client, SimpleNamespace(command="remove", target="/a", token=None)), "remove")
+        self.assertEqual(
+            cli._run_client_command(
+                client,
+                SimpleNamespace(command="remove", target="/a", token=None, if_match=None, request_id=None),
+            ),
+            "remove",
+        )
 
     def test_run_client_command_rejects_unknown_command(self):
         with self.assertRaises(ValueError):
@@ -70,7 +97,24 @@ class CLITests(unittest.TestCase):
         self.assertIn("hello", output)
 
     @patch("lumentp.cli.LumenTPClient")
-    def test_main_client_command_without_body_prints_status_and_type(self, mock_client_class):
+    def test_main_show_headers_prints_non_length_headers(self, mock_client_class):
+        mock_client = mock_client_class.return_value
+        headers = Response(status_code=200).headers
+        headers = headers.with_replaced("Content-Type", "text/plain")
+        headers = headers.with_replaced("ETag", '"tag"')
+        mock_client.fetch.return_value = Response(status_code=200, body=b"hello", headers=headers)
+
+        stdout = io.StringIO()
+        with patch("sys.stdout", stdout):
+            exit_code = cli.main(["fetch", "/doc", "--show-headers"])
+
+        self.assertEqual(exit_code, 0)
+        output = stdout.getvalue()
+        self.assertIn("ETag: \"tag\"", output)
+        self.assertNotIn("Content-Length:", output)
+
+    @patch("lumentp.cli.LumenTPClient")
+    def test_main_client_command_without_body_prints_status_only(self, mock_client_class):
         mock_client = mock_client_class.return_value
         mock_client.remove.return_value = Response(status_code=204)
 
@@ -89,7 +133,7 @@ class CLITests(unittest.TestCase):
 
         stdout = io.StringIO()
         with patch("sys.stdout", stdout):
-            exit_code = cli.main(["server", "--host", "127.0.0.1", "--port", "9090", "--token", "secret"])
+            exit_code = cli.main(["server", "--host", "127.0.0.1", "--port", "9090", "--token", "secret", "--cache-max-age", "10"])
 
         self.assertEqual(exit_code, 0)
         mock_server.start.assert_called_once()
