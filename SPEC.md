@@ -1,95 +1,210 @@
-# LumenTP/1.2 Specification
+# LumenTP Specification
 
-## 1. Overview
+Protocol version: `LumenTP/1.4`
 
-LumenTP is a text-framed, request/response application protocol that runs over a byte-stream transport, typically TCP.
+LumenTP is a text-framed request/response protocol over TCP. It is designed as a compact, readable protocol inspired by the basic structure of HTTP, but with its own names and rules.
 
-This document defines version `LumenTP/1.2`.
+## 1. Transport
 
-## 2. Design objectives
+- transport: TCP
+- encoding for start lines and headers: UTF-8
+- body: raw bytes
+- message framing: `Content-Length`
+- connections: persistent by default
+- close behavior: send `Connection: close` to end after the current exchange
 
-1. Be readable on the wire.
-2. Be small enough to implement from scratch.
-3. Be strict enough to avoid ambiguous parsing.
-4. Be extensible through headers and versioning.
-5. Be practical enough to test with real network scenarios.
-6. Add realistic state, caching, and traceability concerns without losing clarity.
+## 2. Message format
 
-## 3. Connection model
-
-- A client opens a TCP connection to a server.
-- A connection may carry multiple sequential request/response exchanges.
-- Connections are persistent by default.
-- Either side may request closure with `Connection: close`.
-- The reference implementation processes one request at a time per connection.
-
-## 4. Message grammar
-
-### 4.1 Request
+### Request
 
 ```text
-METHOD SP TARGET SP VERSION CRLF
-*(HEADER CRLF)
-CRLF
-[BODY]
+<METHOD> <TARGET> <VERSION>\r\n
+Header-Name: value\r\n
+Header-Name: value\r\n
+\r\n
+<optional body bytes>
 ```
 
-### 4.2 Response
+Example:
 
 ```text
-VERSION SP STATUS_CODE SP REASON CRLF
-*(HEADER CRLF)
-CRLF
-[BODY]
+FETCH /notes/hello LumenTP/1.4
+Accept: text/plain
+Authorization: Token reader-secret
+X-Request-Id: req-001
+
 ```
 
-### 4.3 Header
+### Response
 
 ```text
-FIELD_NAME ":" OWS FIELD_VALUE
+<VERSION> <STATUS_CODE> <REASON>\r\n
+Header-Name: value\r\n
+Header-Name: value\r\n
+\r\n
+<optional body bytes>
 ```
 
-## 5. Encoding rules
+Example:
 
-- Start lines and headers are encoded as UTF-8 text.
-- Bodies are treated as raw bytes.
-- Line endings are `\r\n`.
-- Message headers end with an empty line: `\r\n\r\n`.
-- If a body is present, its size is determined only by `Content-Length`.
-- In the reference implementation, `SUBMIT` and `REPLACE` always emit `Content-Length`, even for empty bodies.
+```text
+LumenTP/1.4 200 OK
+Content-Type: text/plain
+Content-Length: 5
+ETag: "abc123"
 
-## 6. Request fields
+hello
+```
 
-### 6.1 METHOD
+## 3. Methods
 
-Valid methods in `LumenTP/1.2`:
+### `PING`
+Health check.
 
-- `FETCH`
-- `SUBMIT`
-- `REPLACE`
-- `REMOVE`
-- `PING`
+### `FETCH`
+Retrieve a resource body and headers.
 
-### 6.2 TARGET
+Supports:
+- `Accept`
+- `If-None-Match`
+- `Range`
 
-- Must start with `/`.
-- Is case-sensitive.
-- Must not contain spaces.
-- In this version, the target is treated as an opaque resource key.
+### `INSPECT`
+Retrieve only resource headers and metadata, without the body.
 
-### 6.3 VERSION
+Supports:
+- `Accept`
+- `If-None-Match`
 
-The only valid version in this specification is `LumenTP/1.2`.
+### `LIST`
+List resources under a prefix.
 
-## 7. Response fields
+Supports:
+- `Accept: application/json`
+- `Limit`
+- `Offset`
+- `Contains`
+- `Filter-Content-Type`
+- `Sort`
+- `Descending`
 
-### 7.1 STATUS_CODE
+### `SUBMIT`
+Create or update a resource body.
 
-Supported status codes:
+Supports:
+- request body
+- `Content-Type`
+- `Cache-Control`
+- `X-Meta-*`
+- `If-None-Match`
+- `If-Match`
+
+### `REPLACE`
+Replace a resource body.
+
+Supports:
+- request body
+- `Content-Type`
+- `Cache-Control`
+- `X-Meta-*`
+- `If-Match`
+
+### `PATCH`
+Update stored metadata without replacing the body.
+
+Request body must be JSON. Supported keys:
+
+```json
+{
+  "content_type": "text/markdown",
+  "cache_control": "no-store",
+  "metadata": {
+    "stage": "draft",
+    "owner": null
+  }
+}
+```
+
+Rules:
+- `metadata` values must be strings or `null`
+- `null` removes a metadata key
+- successful metadata changes update the resource version, last-modified time, and ETag
+
+### `REMOVE`
+Delete a resource.
+
+Supports:
+- `If-Match`
+
+## 4. Standard headers
+
+### Request headers
+
+- `Host`
+- `Authorization: Token <value>`
+- `Accept`
+- `Content-Type`
+- `Content-Length`
+- `Connection`
+- `If-None-Match`
+- `If-Match`
+- `Range`
+- `Limit`
+- `Offset`
+- `Contains`
+- `Filter-Content-Type`
+- `Sort`
+- `Descending`
+- `Cache-Control`
+- `X-Request-Id`
+- `X-Meta-*`
+
+### Response headers
+
+- `Content-Type`
+- `Content-Length`
+- `Connection`
+- `ETag`
+- `Last-Modified`
+- `Cache-Control`
+- `Accept-Ranges: bytes`
+- `Content-Range`
+- `WWW-Authenticate`
+- `X-Request-Id`
+- `X-Total-Count`
+- `X-Meta-*`
+
+## 5. Auth model
+
+LumenTP supports three optional token roles:
+
+- read token: `FETCH`, `INSPECT`, `LIST`
+- write token: `SUBMIT`, `REPLACE`, `PATCH`
+- admin token: `REMOVE` and everything else
+
+A single shared token mode also exists.
+
+## 6. Resource metadata
+
+Each stored resource includes:
+
+- target
+- body
+- content type
+- ETag
+- last-modified timestamp
+- version number
+- cache-control value
+- string metadata map
+
+Metadata is surfaced through `X-Meta-*` headers.
+
+## 7. Status codes
 
 - `200 OK`
 - `201 CREATED`
 - `204 NO CONTENT`
+- `206 PARTIAL CONTENT`
 - `304 NOT MODIFIED`
 - `400 BAD REQUEST`
 - `401 UNAUTHORIZED`
@@ -98,233 +213,81 @@ Supported status codes:
 - `406 NOT ACCEPTABLE`
 - `411 LENGTH REQUIRED`
 - `412 PRECONDITION FAILED`
+- `416 RANGE NOT SATISFIABLE`
 - `500 INTERNAL SERVER ERROR`
 
-## 8. Body framing
+## 8. Conditional behavior
 
-If a message has a body, it must include `Content-Length` with a non-negative integer value.
+### `If-None-Match`
+- for `FETCH` and `INSPECT`, matching ETag returns `304 NOT MODIFIED`
+- for `SUBMIT`, `If-None-Match: *` blocks creation when the target already exists
 
-If `Content-Length` is present, the parser reads exactly that many bytes after the header block.
+### `If-Match`
+- for `REPLACE`, `PATCH`, and `REMOVE`, a non-matching ETag returns `412 PRECONDITION FAILED`
 
-For `SUBMIT` and `REPLACE`, the reference implementation requires the request to include `Content-Length`, even when the body is empty.
+## 9. Listing semantics
 
-## 9. Header handling
+`LIST` returns JSON like this:
 
-- Header names are case-insensitive for lookup.
-- Original insertion order is preserved.
-- Unknown headers are allowed.
-- If duplicate header names are present, the last one wins for direct lookup in the reference implementation.
-
-## 10. Standard headers in this version
-
-### 10.1 Host
-
-Clients should send `Host`.
-
-### 10.2 Content-Length
-
-Defines body size in bytes.
-
-### 10.3 Content-Type
-
-Represents the media type of the body.
-
-- For `SUBMIT` and `REPLACE`, the server stores this media type with the resource.
-- If absent, the reference implementation uses `application/octet-stream`.
-- `FETCH` responses include the stored `Content-Type`.
-
-### 10.4 Accept
-
-Used by clients to declare acceptable response media types for `FETCH`.
-
-The reference implementation supports:
-
-- exact matches like `text/plain`
-- type wildcards like `text/*`
-- full wildcards like `*/*`
-- comma-separated lists
-
-Parameters and quality weights are ignored by the reference implementation.
-
-### 10.5 Connection
-
-- `Connection: close` requests that the connection be closed after the current exchange.
-- If omitted, the reference implementation keeps the connection open until timeout or peer closure.
-
-### 10.6 Authorization
-
-The reference implementation can be configured to require:
-
-```text
-Authorization: Token <token-value>
+```json
+{
+  "prefix": "/notes",
+  "count": 1,
+  "total": 3,
+  "limit": 20,
+  "offset": 0,
+  "contains": "hello",
+  "filter_content_type": "text/*",
+  "sort": "version",
+  "descending": true,
+  "items": [
+    {
+      "target": "/notes/hello",
+      "content_type": "text/plain",
+      "etag": "\"abc123\"",
+      "last_modified": "2026-04-15T20:00:00Z",
+      "size": 11,
+      "version": 2,
+      "cache_control": "max-age=120",
+      "metadata": {
+        "kind": "note"
+      }
+    }
+  ]
+}
 ```
 
-When authentication is enabled:
+## 10. Error format
 
-- `PING` remains public
-- all other methods require a matching token
-- failures return `401 UNAUTHORIZED`
+When the client accepts problem JSON, errors use:
 
-### 10.7 ETag
-
-`ETag` identifies the current stored representation of a resource.
-
-In the reference implementation, ETags are generated by hashing the target, content type, version number, and body bytes.
-
-### 10.8 If-None-Match
-
-Supported behaviors:
-
-- On `FETCH`, if the current ETag matches, the server returns `304 NOT MODIFIED` with no body.
-- On `SUBMIT`, `If-None-Match: *` means “only create if missing.” If the target exists, the server returns `412 PRECONDITION FAILED`.
-
-### 10.9 If-Match
-
-Supported behaviors:
-
-- On `REPLACE`, the stored representation must match the provided ETag.
-- On `REMOVE`, the stored representation must match the provided ETag.
-- If the precondition fails, the server returns `412 PRECONDITION FAILED`.
-
-### 10.10 Last-Modified
-
-The reference implementation returns an RFC3339-like UTC timestamp, for example:
-
-```text
-2026-04-15T12:00:00Z
+```json
+{
+  "status": 404,
+  "reason": "NOT FOUND",
+  "detail": "resource /missing was not found"
+}
 ```
 
-### 10.11 Cache-Control
-
-Successful `FETCH` responses include a simple freshness hint:
+Media type:
 
 ```text
-Cache-Control: max-age=<seconds>
+application/problem+json
 ```
 
-### 10.12 X-Request-Id
+## 11. Server behavior limits
 
-Clients may send `X-Request-Id`.
+- maximum header block: 64 KiB
+- multiple byte ranges are not supported
+- range units other than `bytes` are rejected
+- bodies are framed only by `Content-Length`
 
-The reference implementation echoes the value back in responses and writes it to structured logs. If the client omits it, the server generates a request ID.
+## 12. Design notes
 
-## 11. Method semantics
+LumenTP deliberately keeps:
 
-### 11.1 FETCH
-
-Returns the bytes stored for the target.
-
-Responses:
-- `200 OK` with body when the resource exists and matches `Accept`
-- `304 NOT MODIFIED` when `If-None-Match` matches the current ETag
-- `404 NOT FOUND` when the resource does not exist
-- `406 NOT ACCEPTABLE` when the stored representation does not match `Accept`
-
-### 11.2 SUBMIT
-
-Stores the body and its media type at the target.
-
-Responses:
-- `201 CREATED` when the target did not exist
-- `200 OK` when the target already existed and the representation was replaced
-- `412 PRECONDITION FAILED` when `If-None-Match: *` is used and the target already exists
-
-### 11.3 REPLACE
-
-Writes the given body and media type to the target.
-
-Responses:
-- `200 OK` when overwriting an existing target
-- `201 CREATED` when creating a missing target
-- `412 PRECONDITION FAILED` when `If-Match` does not match the current ETag
-
-### 11.4 REMOVE
-
-Deletes the target.
-
-Responses:
-- `204 NO CONTENT` when deletion succeeds
-- `404 NOT FOUND` when the target does not exist
-- `412 PRECONDITION FAILED` when `If-Match` does not match the current ETag
-
-### 11.5 PING
-
-A lightweight health check.
-
-Response:
-- `200 OK` with body `pong`
-
-## 12. Error handling
-
-Malformed messages produce `400 BAD REQUEST`.
-
-Examples include:
-
-- invalid start line shape
-- invalid version
-- missing `:` in a header line
-- invalid target format
-- invalid `Content-Length`
-- header block too large
-- mismatched body length
-
-Unexpected server failures produce `500 INTERNAL SERVER ERROR`.
-
-The reference implementation can serialize many errors as structured JSON with media type `application/problem+json`.
-
-## 13. Durable storage behavior
-
-The reference implementation stores resources on disk using a local directory.
-
-Each stored resource preserves:
-
-- target
-- body bytes
-- content type
-- version number
-- current ETag
-- last-modified timestamp
-
-This makes stored resources survive server restarts.
-
-## 14. Structured logging behavior
-
-The reference implementation can append one JSON object per handled request to a log file.
-
-Typical fields include:
-
-- client address
-- method
-- target
-- status
-- request ID
-- response body size
-- processing duration
-- optional error string
-
-## 15. Limits in the reference implementation
-
-These are implementation limits, not protocol-law limits:
-
-- maximum header block size: 64 KiB
-- socket read timeout: configurable, default 5 seconds
-- request handling is sequential within a single connection
-- cache metadata is advisory only and not enforced on the client side
-
-## 16. Security notes
-
-This protocol is intentionally simple and still does not define:
-
-- encryption
-- authorization scopes or roles
-- message signing
-- replay protection
-
-The implementation still includes a small hardening baseline:
-
-- strict line parsing
-- bounded header size
-- target validation
-- timeout usage
-- optional token authentication
-- conditional update support to reduce accidental overwrites
+- explicit framing
+- simple persistent connections
+- strong parser behavior
+- small dependency surface
+- a reference implementation that is easy to inspect and extend

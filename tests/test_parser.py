@@ -1,5 +1,6 @@
 import unittest
 
+from lumentp.constants import VERSION
 from lumentp.errors import ParseError
 from lumentp.parser import parse_request, parse_response, read_message_bytes
 
@@ -16,43 +17,43 @@ class FakeSocket:
 
 class ParserTests(unittest.TestCase):
     def test_parse_request_success(self):
-        data = b"FETCH /doc LumenTP/1.2\r\nHost: localhost\r\n\r\n"
+        data = f"FETCH /doc {VERSION}\r\nHost: localhost\r\n\r\n".encode("utf-8")
         request = parse_request(data)
         self.assertEqual(request.method, "FETCH")
         self.assertEqual(request.target, "/doc")
 
     def test_parse_request_bad_target_raises(self):
-        data = b"FETCH doc LumenTP/1.2\r\n\r\n"
+        data = f"FETCH doc {VERSION}\r\n\r\n".encode("utf-8")
         with self.assertRaises(ParseError):
             parse_request(data)
 
     def test_parse_response_success(self):
-        data = b"LumenTP/1.2 200 OK\r\nContent-Length: 4\r\n\r\npong"
+        data = f"{VERSION} 200 OK\r\nContent-Length: 4\r\n\r\npong".encode("utf-8")
         response = parse_response(data)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.body, b"pong")
 
     def test_parse_response_invalid_status_code_raises(self):
-        data = b"LumenTP/1.2 nope OK\r\n\r\n"
+        data = f"{VERSION} nope OK\r\n\r\n".encode("utf-8")
         with self.assertRaises(ParseError):
             parse_response(data)
 
     def test_read_message_bytes_handles_leftover_bytes_for_keep_alive(self):
-        first = b"LumenTP/1.2 200 OK\r\nContent-Length: 4\r\n\r\npong"
-        second = b"LumenTP/1.2 204 NO CONTENT\r\nContent-Length: 0\r\n\r\n"
+        first = f"{VERSION} 200 OK\r\nContent-Length: 4\r\n\r\npong".encode("utf-8")
+        second = f"{VERSION} 204 NO CONTENT\r\nContent-Length: 0\r\n\r\n".encode("utf-8")
         fake_socket = FakeSocket([first + second])
         data, leftover = read_message_bytes(fake_socket)
         self.assertEqual(data, first)
         self.assertEqual(leftover, second)
 
     def test_read_message_bytes_uses_initial_buffer(self):
-        message = b"LumenTP/1.2 204 NO CONTENT\r\nContent-Length: 0\r\n\r\n"
+        message = f"{VERSION} 204 NO CONTENT\r\nContent-Length: 0\r\n\r\n".encode("utf-8")
         data, leftover = read_message_bytes(FakeSocket([]), initial=message)
         self.assertEqual(data, message)
         self.assertEqual(leftover, b"")
 
     def test_read_message_bytes_rejects_invalid_content_length(self):
-        fake_socket = FakeSocket([b"FETCH /doc LumenTP/1.2\r\nContent-Length: xx\r\n\r\n"])
+        fake_socket = FakeSocket([f"FETCH /doc {VERSION}\r\nContent-Length: xx\r\n\r\n".encode("utf-8")])
         with self.assertRaises(ParseError):
             read_message_bytes(fake_socket)
 
